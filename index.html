@@ -53,8 +53,8 @@
   #view canvas{display:block}
   #overlay{position:absolute;left:0;top:0;pointer-events:none}
   #panel{position:absolute;left:0;bottom:0;width:100%;display:block}
-  #comms{position:absolute;top:12px;left:14px;max-width:min(520px,46vw);max-height:calc(3 * 1.45em + 18px);overflow:hidden;font:14px/1.45 "Courier New",monospace;pointer-events:none;z-index:3}
-  .touch #comms{top:calc(8px + var(--sa-t));left:calc(14px + var(--sa-l));font-size:13px;line-height:1.35;max-height:calc(3 * 1.35em + 16px)}
+  #comms{position:absolute;top:12px;left:14px;max-width:min(520px,46vw);font:14px/1.45 "Courier New",monospace;pointer-events:none;z-index:3}
+  .touch #comms{top:calc(8px + var(--sa-t));left:calc(14px + var(--sa-l));font-size:13px;line-height:1.35}
   #comms div{background:rgba(0,0,0,.45);padding:2px 8px;margin-bottom:3px;border-left:3px solid #8a9;transition:opacity .45s;color:#dfe8d6;text-shadow:0 0 3px #000}
   #comms div.capcom{border-color:#e9b43a}
   #comms div.armstrong{border-color:#6fb6ff}
@@ -327,12 +327,12 @@ const PADS=[],PROBES=[],HULL=[],HULL_D=[],HULL_A=[];
   addA(cyl(new V3(-0.9,5.2,-0.9),new V3(-1.0,6.0,-1.1),0.04,silver,4));
   const dish=addA(new THREE.Mesh(new THREE.SphereGeometry(0.42,10,6,0,Math.PI*2,0,1.0),silver));dish.position.set(-1.0,6.0,-1.1);dish.rotation.x=-0.6;
   const rr=addA(new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.2,0.2,10),silver));rr.position.set(0.95,5.25,0.75);rr.rotation.z=-0.8;
-  // RCS quads + puffs
-  const puffMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,depthWrite:false,blending:THREE.AdditiveBlending});
+  // RCS quads; each has 4 jets (up, down, and two sideways). Jets are emitter descriptors, the visible exhaust is the rcsFx particle system below.
   for(const sx of [-1,1])for(const sz of [-1,1]){const qd=addA(new THREE.Mesh(new THREE.BoxGeometry(0.32,0.32,0.32),silver));qd.position.set(1.15*sx,4.75,1.55*sz);
     for(const dirv of [new V3(0,1,0),new V3(0,-1,0),new V3(sx,0,0),new V3(0,0,sz)]){
-      const pf=new THREE.Mesh(new THREE.ConeGeometry(0.28,1.6,8,1,true),puffMat);pf.quaternion.setFromUnitVectors(new V3(0,-1,0),dirv);
-      pf.position.copy(qd.position).addScaledVector(dirv,0.95);pf.visible=false;asG.add(pf);puffs.push(pf);}}
+      const p=qd.position.clone().addScaledVector(dirv,0.2);const r=p.clone().sub(COM);     // nozzle, relative to the centre of mass
+      const tq=new V3().crossVectors(r,dirv.clone().negate()).normalize();                 // body-frame torque direction this jet produces
+      puffs.push({p,d:dirv.clone(),tq,on:0});}}
   // plume (stylised; real DPS plume is nearly invisible in vacuum)
   const pm1=new THREE.MeshBasicMaterial({color:0xffb46a,alphaMap:plumeAlpha,transparent:true,opacity:0.3,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
   const pm2=pm1.clone();pm2.color.set(0xfff0d0);
@@ -372,7 +372,33 @@ function updateDust(dt){for(let i=0;i<MAXP;i++){if(dust.life[i]<=0){dust.alpha[i
   dust.vel[i*3+1]-=GM*dt;dust.pos[i*3]+=dust.vel[i*3]*dt;dust.pos[i*3+1]+=dust.vel[i*3+1]*dt;dust.pos[i*3+2]+=dust.vel[i*3+2]*dt;
   const f=dust.life[i]/dust.max[i];dust.alpha[i]=dust.life[i]>0?Math.min(1,f*1.6)*dust.a0[i]:0;}
   dustGeo.attributes.position.needsUpdate=true;dustGeo.attributes.aAlpha.needsUpdate=true;dustGeo.attributes.aSize.needsUpdate=true;}
-function clearDust(){dust.life.fill(0);dust.alpha.fill(0);}
+function clearDust(){dust.life.fill(0);dust.alpha.fill(0);rcsP.life.fill(0);rcsP.alpha.fill(0);}
+// ---------------- RCS exhaust: short-lived, soft, additive wisps ----------------
+const MAXR=LOW?500:900;
+const rcsP={pos:new Float32Array(MAXR*3),vel:new Float32Array(MAXR*3),life:new Float32Array(MAXR),max:new Float32Array(MAXR),alpha:new Float32Array(MAXR),a0:new Float32Array(MAXR),size:new Float32Array(MAXR),s0:new Float32Array(MAXR),head:0};
+const rcsGeo=new THREE.BufferGeometry();rcsGeo.setAttribute('position',new THREE.BufferAttribute(rcsP.pos,3));
+rcsGeo.setAttribute('aAlpha',new THREE.BufferAttribute(rcsP.alpha,1));rcsGeo.setAttribute('aSize',new THREE.BufferAttribute(rcsP.size,1));
+const rcsMat=new THREE.ShaderMaterial({uniforms:{uScale:{value:600},uColor:{value:new THREE.Color(0xdfe8ff)}},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:dustMat.vertexShader,
+  fragmentShader:`#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uColor;varying float vA;
+void main(){vec2 c=gl_PointCoord-0.5;float d2=dot(c,c)*4.0;if(d2>1.0||vA<=0.0)discard;
+#include <logdepthbuf_fragment>
+gl_FragColor=vec4(uColor*vA*exp(-d2*3.2)*(1.0-d2),1.0);}`});
+const rcsPts=new THREE.Points(rcsGeo,rcsMat);rcsPts.frustumCulled=false;rcsPts.renderOrder=3;scene.add(rcsPts);
+const _rp=new V3(),_rd=new V3();
+function emitRcs(jet,n,strength,q,pos,vel){for(let k=0;k<n;k++){const i=rcsP.head;rcsP.head=(rcsP.head+1)%MAXR;
+  _rp.copy(jet.p).sub(COM).applyQuaternion(q).add(pos);_rd.copy(jet.d);
+  _rd.x+=(Math.random()-0.5)*0.32;_rd.y+=(Math.random()-0.5)*0.32;_rd.z+=(Math.random()-0.5)*0.32;_rd.normalize().applyQuaternion(q);
+  const sp=9+Math.random()*9,j=Math.random()*0.05;
+  rcsP.pos[i*3]=_rp.x+_rd.x*j;rcsP.pos[i*3+1]=_rp.y+_rd.y*j;rcsP.pos[i*3+2]=_rp.z+_rd.z*j;
+  rcsP.vel[i*3]=vel.x+_rd.x*sp;rcsP.vel[i*3+1]=vel.y+_rd.y*sp;rcsP.vel[i*3+2]=vel.z+_rd.z*sp;
+  const l=0.07+Math.random()*0.11;rcsP.life[i]=l;rcsP.max[i]=l;rcsP.s0[i]=0.12+Math.random()*0.08;rcsP.a0[i]=(0.38+Math.random()*0.22)*strength;}}
+function updateRcsFx(dt){for(let i=0;i<MAXR;i++){if(rcsP.life[i]<=0){rcsP.alpha[i]=0;continue;}rcsP.life[i]-=dt;
+  rcsP.pos[i*3]+=rcsP.vel[i*3]*dt;rcsP.pos[i*3+1]+=rcsP.vel[i*3+1]*dt;rcsP.pos[i*3+2]+=rcsP.vel[i*3+2]*dt;
+  const age=1-Math.max(0,rcsP.life[i])/rcsP.max[i];rcsP.size[i]=rcsP.s0[i]*(1+age*4.5);rcsP.alpha[i]=rcsP.life[i]>0?rcsP.a0[i]*(1-age)*(1-age):0;}
+  rcsGeo.attributes.position.needsUpdate=true;rcsGeo.attributes.aAlpha.needsUpdate=true;rcsGeo.attributes.aSize.needsUpdate=true;}
 
 // ---------------- radio: real Apollo 11 clips, synth fallback ----------------
 let voiceMode=1; // 0 = off, 1 = real Apollo audio (default), 2 = real audio + synth for unmatched callouts
@@ -411,7 +437,7 @@ function matchCallout(altFt,downFps){let best=null,bs=1e9;
   return best;}
 
 // ---------------- state ----------------
-const S={pos:new V3(),vel:new V3(),q:new THREE.Quaternion(),w:new V3(),mode:'ready',t:0,events:[],post:[]};
+const S={rcsCmd:new V3(),postLog:[],pos:new V3(),vel:new V3(),q:new THREE.Quaternion(),w:new V3(),mode:'ready',t:0,events:[],post:[]};
 const keys={};
 let paused=false, muted=false, showHelp=true;
 const tq=new THREE.Quaternion(),tv=new V3();
@@ -424,8 +450,13 @@ function hoverSec(){return S.fuel/hoverRate();}
 function fuelPct(){return S.fuel/TANK*100;}
 // Fuel mass at which 20 s of hover remains — the bingo reserve. Constant for a given dry mass.
 function bingoFuelMass(){return 20*GM*DRY/(ISP*G0-20*GM);}
-// Time to that reserve at the current descent-engine burn rate (throttle-dependent). Null if the engine is producing no thrust, because the figure would shoot up toward infinity.
-function liveBingo(fuel){if(S.staged||!(S.thr>1e-4))return null;return (fuel-bingoFuelMass())/(S.thr*TMAX/(ISP*G0));}
+// Time to that reserve at the current descent-engine burn rate (throttle-dependent). Null when the engine is shut down.
+// Uses the throttle the engine is being driven to (commanded, or stuck value), floored at the DPS's 10% minimum, not the
+// lagging actual thrust: after CUT the actual thrust decays toward zero over ~2 s, and dividing by it sent the figure to
+// hundreds of thousands of seconds, which the hold then kept on the gauge.
+function burnThr(){if(S.staged||!S.engineOn||!(S.fuel>0))return null;const ts=thrStuck(),c=ts!=null?ts:S.thrCmd;return c>1e-4?Math.max(0.1,c):null;}
+function liveBingo(fuel){const t=burnThr();if(t==null)return null;return Math.min(BINGO_CAP,(fuel-bingoFuelMass())/Math.max(t*TMAX/(ISP*G0),hoverRate()));}   // never slower than hover burn: below hover throttle the gauge reads hover time
+const BINGO_CAP=599;   // gauge shows at most 9:59
 function updateBingoClock(){
   if(S.bingoFrozen!=null)return;
   const v=liveBingo(indFuelPct()/100*TANK);
@@ -458,9 +489,12 @@ const comms=[];
 function say(who,text,clip=null,priority=false){
   const el=document.createElement('div');el.className=who.toLowerCase();el.innerHTML=`<b>${who}:</b>${text}`;$('comms').appendChild(el);
   comms.push({el,t:performance.now()});while(comms.length>3){comms.shift().el.remove();}
+  // keep the log to about 4 text lines, but never clip a message: long (wrapped) lines push older entries out instead of being cut off
+  {const box=$('comms'),lh=parseFloat(getComputedStyle(box).lineHeight)||20;while(comms.length>1&&box.scrollHeight>lh*4+22)comms.shift().el.remove();}
   restyleComms();
   let real=false;if(clip){el.classList.add('real');real=radio(clip,who,text,priority);}
   if(!clip){if(who==='CAPCOM')beep(2525,0.25,0.05);if(voiceMode===2)speak(text,who);}
+  if(S.mode!=='fly'&&S.mode!=='ready')S.postLog.push({who,text});   // outcome radio exchange, repeated in full on the results card
   S.lastSay=S.t;return real;
 }
 function sayClip(clip,priority=true){const c=RADIO[clip];return say(c.who,c.text,clip,priority);}
@@ -476,7 +510,7 @@ function reset(){
   S.vel.set(30,-12,1.2);S.w.set(0,0,0);S.fuel=FUEL0;S.rcs=100;S.engineOn=true;S.auto=true;S.prog=64;S.t=0;
   S.mode='ready';S.contact=false;S.lowLevel=false;S.said60=S.said30=S.saidBingo=S.saidDust=S.saidShadow=false;
   S.alarm=null;S.alarmAck=true;S.master=false;S.dskyBlank=0;S.alarmT=0;S.nextCall=7;S.lastSay=-10;S.result=null;S.ftpT=0;S.rcsAct=0;S.cutReq=S.ftpReq=false;S.apTarget=null;
-  S.post=[];S.postT=0;S.anim=null;S.usedClips=new Set();S.saidDrift=false;
+  S.post=[];S.postT=0;S.postLog=[];S.anim=null;S.usedClips=new Set();S.saidDrift=false;
   S.abort=null;S.staged=false;S.apsOn=false;S.apsFuel=ASC_FUEL0;S.info=null;S.abortEv=[];S.saidStageNow=false;
   S.bingoFrozen=null;S.bingoHeld=null;
   DS.active=false;DS.done=false;DS.fate=null;DS.anim=null;lm.add(dsG);dsG.position.set(0,0,0);dsRoot.visible=false;aplume.visible=false;clearDebris();PANEL.reset();
@@ -522,8 +556,9 @@ function simStep(dt){
   }
   // attitude: rate command / attitude hold through the RCS
   const dist=rcsDisturb();if(dist&&S.rcs>0)S.w.addScaledVector(dist,dt);
+  S.rcsCmd.set(0,0,0);
   if(S.rcs>0){const md=ANGACC*dt*attAuthority(pitchIn||rollIn||yawIn);const dx=clamp(wcmd.x-S.w.x,-md,md),dy=clamp(wcmd.y-S.w.y,-md,md),dz=clamp(wcmd.z-S.w.z,-md,md);
-    S.w.x+=dx;S.w.y+=dy;S.w.z+=dz;const use=(Math.abs(dx)+Math.abs(dy)+Math.abs(dz))/md;S.rcsAct=lerp(S.rcsAct,use>0.05?1:0,0.2);S.rcs=Math.max(0,S.rcs-use*0.004);}
+    S.w.x+=dx;S.w.y+=dy;S.w.z+=dz;S.rcsCmd.set(dx/md,dy/md,dz/md);const use=(Math.abs(dx)+Math.abs(dy)+Math.abs(dz))/md;S.rcsAct=lerp(S.rcsAct,use>0.05?1:0,0.2);S.rcs=Math.max(0,S.rcs-use*0.004);}
   const ang=S.w.length()*dt;if(ang>1e-9){tq.setFromAxisAngle(tv.copy(S.w).normalize(),ang);S.q.multiply(tq).normalize();}
   // propulsion: descent engine (throttleable) or, once staged, the fixed-thrust ascent engine
   let m,F;const u=upVec();
@@ -612,6 +647,9 @@ function touchdown(reason){
     P(1.5,()=>say('CAPCOM','Eagle, Houston. Do you read? Over.'));P(4.5,()=>say('CAPCOM','Eagle, Houston...'));P(6.5,showDebrief);
   }
 }
+function radioRecapHTML(){const L=S.postLog||[];if(!L.length)return '';
+  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  return `<div class="recap" style="text-align:left;margin:10px auto 4px;max-width:560px;font:13px/1.45 'Courier New',monospace;color:#d6dccb">${L.map(l=>`<div style="margin:2px 0"><b style="color:${l.who==='CAPCOM'?'#e9b43a':l.who==='ARMSTRONG'?'#6fb6ff':'#9fc2a0'}">${esc(l.who)}:</b> ${esc(l.text)}</div>`).join('')}</div>`;}
 function showDebrief(){
   const r=S.result;if(!r)return;if(r.res==='abort'||(r.abort&&r.res==='crash'))return showAbortDebrief(r);const title={ok:'THE EAGLE HAS LANDED',hard:'HARD LANDING',crash:'MISSION LOST'}[r.res];
   const cls={ok:'res-ok',hard:'res-hard',crash:'res-bad'}[r.res];
@@ -630,7 +668,7 @@ function showDebrief(){
   ${row('Fuel remaining',`${r.pct.toFixed(1)}% &middot; ${Math.max(0,r.fuel).toFixed(0)} s of hover (${(r.fuel-20).toFixed(0)} s to bingo)`,r.fuel<20)}
   ${row('Distance from planned site',`${r.dist.toFixed(0)} m (${(r.dist*FT).toFixed(0)} ft)`)}</table>
   <p style="font-size:13px;color:#b9b5a6">For reference: Armstrong flew Eagle long, past West crater's boulder field, and touched down with roughly 25&ndash;45 seconds of usable fuel left (estimates vary).</p>
-  ${failSummaryHTML()}<div class="go"><span class="kbonly">PRESS R</span><span class="touchonly">TAP</span> TO FLY AGAIN</div>`;
+  ${radioRecapHTML()}${failSummaryHTML()}<div class="go"><span class="kbonly">PRESS R</span><span class="touchonly">TAP</span> TO FLY AGAIN</div>`;
   $('debrief').classList.remove('hidden');
 }
 
@@ -839,7 +877,7 @@ function showAbortDebrief(r){
   ${row(ok?'Fuel left when safe':'Fuel left',r.staged?`Ascent ${(ok?r.apsPct:apsPct()).toFixed(0)}% (${(ASC_FUEL0*(ok?r.apsPct:apsPct())/100).toFixed(0)} kg)`:`Descent ${(ok?r.dpsPct:fuelPct()).toFixed(1)}%`,ok?false:true)}
   ${row('Descent stage',dsFateText(),DS.fate==='crashed')}</table>
   <p style="font-size:13px;color:#b9b5a6">For reference: Apollo 11 never needed either button, but the crew rehearsed both aborts in the simulator. Abort charts marked a region of low altitude and high sink rate (the "dead man's zone") where even an abort stage could not stop the LM reaching the surface.</p>
-  ${failSummaryHTML()}<div class="go"><span class="kbonly">PRESS R</span><span class="touchonly">TAP</span> TO FLY AGAIN</div>`;
+  ${radioRecapHTML()}${failSummaryHTML()}<div class="go"><span class="kbonly">PRESS R</span><span class="touchonly">TAP</span> TO FLY AGAIN</div>`;
   $('debrief').classList.remove('hidden');}
 
 // ---------------- failures: setting, scheduling, effects ----------------
@@ -999,7 +1037,12 @@ function updateVisuals(dt){
   if(plume.visible){const fl=0.85+Math.random()*0.3;plume.scale.set(0.8+thr*0.5,(0.5+thr*0.9)*fl,0.8+thr*0.5);plume.children[0].material.opacity=0.12+0.28*thr;plume.children[1].material.opacity=0.25+0.4*thr;}
   aplume.visible=apsLit;if(apsLit){const fl=0.85+Math.random()*0.3;aplume.scale.set(1,fl,1);}
   engLight.intensity=apsLit?40:thr*60;engLight.position.copy(worldPt(new V3(0,apsLit?1.4:-1.5,0).sub(COM)));
-  const spf=stuckPuff();puffs.forEach((p,i)=>{p.visible=flying&&(i===spf?Math.random()<0.9:S.rcsAct>0.3&&Math.random()<0.35);p.scale.setScalar(i===spf?1.8:1);});
+  // RCS: only the jets whose torque matches the commanded attitude change fire (plus a stuck-on jet), as brief soft wisps
+  const spf=stuckPuff();
+  if(!paused){const cm=S.rcsCmd.length(),cn=cm>1e-6?S.rcsCmd.clone().divideScalar(cm):null;const rate=(LOW?200:340)*dt;
+    puffs.forEach((j,i)=>{let f=0;if(flying&&S.rcs>0){if(i===spf)f=1.3;else if(cn&&cm>0.15){const s=j.tq.dot(cn);if(s>0.55)f=Math.min(1,cm)*(s-0.55)/0.45*0.6+0.4;}}
+      j.on=f;if(f>0)emitRcs(j,Math.floor(rate*f+Math.random()),f,S.q,S.pos,S.vel);});
+    updateRcsFx(dt);}
   const eff=apsLit?0.45:thr;
   if(!paused){const alt=altitude();
     if(flying&&eff>0.05&&alt<42){const u=upVec();const o=originPt();const t=alt/Math.max(0.35,u.y);
@@ -1010,7 +1053,7 @@ function updateVisuals(dt){
   const sz=clamp(70+alt*0.55,70,700);const sc=sun.shadow.camera;if(Math.abs(sc.right-sz)>1){sc.left=-sz;sc.right=sz;sc.top=sz;sc.bottom=-sz;sc.updateProjectionMatrix();}
   sun.position.copy(focus).addScaledVector(sunDir,1500);sun.target.position.copy(focus);sun.target.updateMatrixWorld();
   updateCamera(dt);
-  dustMat.uniforms.uScale.value=renderer.domElement.height/(2*Math.tan(camera.fov*DEG/2));
+  dustMat.uniforms.uScale.value=renderer.domElement.height/(2*Math.tan(camera.fov*DEG/2));rcsMat.uniforms.uScale.value=dustMat.uniforms.uScale.value;
   if(bannerTimer>0){bannerTimer-=dt;if(bannerTimer<=0)$('banner').style.opacity=0;}
   restyleComms();
 }
@@ -1251,7 +1294,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,Math.max
   updateVisuals(dt);renderer.render(scene,camera);drawPanel();drawSW(now);touchFrame();drawOverlay();updateAudio();}
 
 // test hooks
-window.__game={S,H,TARGET,CLEAR,boulders,camState,keys,reset,restart,begin,altitude,hoverSec,fuelPct,timeToBingo,indTimeToBingo,say,showDebrief,touchdown,freezeBingo,displayBingo(){return Math.max(0,Math.ceil(indTimeToBingo()));},lowLevelBingo(){return 5.6/100*TANK/hoverRate()-20;},
+window.__game={S,H,TARGET,CLEAR,boulders,camState,keys,reset,restart,begin,altitude,hoverSec,fuelPct,timeToBingo,indTimeToBingo,say,showDebrief,touchdown,freezeBingo,displayBingo(){return Math.max(0,Math.ceil(indTimeToBingo()));},jetsOn(){return puffs.filter(j=>j.on>0).length;},rcsLive(){let n=0;for(let i=0;i<rcsP.life.length;i++)if(rcsP.life[i]>0)n++;return n;},lowLevelBingo(){return 5.6/100*TANK/hoverRate()-20;},
   step(sec){const n=Math.round(sec/DT);for(let i=0;i<n&&(S.mode==='fly'||S.mode==='abortok');i++)simStep(DT);},
   get touchIn(){return touchIn;},get PS(){return PS;},tapSize(id){const k=PANEL.byId[id];let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;for(let x=k.x-100;x<k.x+k.w+100;x++)for(let y=k.y-100;y<k.y+k.h+100;y++)if(k.hit(x,y)){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);}return [Math.round((x1-x0)*PS),Math.round((y1-y0)*PS)];},get TOUCH_UI(){return TOUCH_UI;},GFX,
   get fails(){return S.fails;},sw,setSwitch(id,p){PANEL.byId[id].set(p);},lrValid,indFuelPct,tapeData,caution,toggleSwitchPanel,get swOpen(){return swOpen;},setFailSetting,get failSetting(){return failSetting;},
