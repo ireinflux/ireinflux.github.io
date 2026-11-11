@@ -1,0 +1,29 @@
+<div id="start" class="screen"><div class="card">
+  <h1>EAGLE</h1>
+  <h2>APOLLO 11 &middot; FINAL DESCENT &middot; SEA OF TRANQUILITY &middot; 20 JULY 1969</h2>
+  <p>Ground elapsed time 102:42. You're Neil Armstrong, about 2,100&nbsp;ft above the Moon. The computer is in <b>P64</b> and is flying Eagle toward the planned landing site, which turns out to be a boulder field on the rim of West crater.</p>
+  <p>Take manual control (<b>P66</b>) by touching any control. Fly long, find a clear patch and set her down gently before the descent stage runs dry. Watch for the <b>LOW LEVEL</b> light and the "60 seconds" / "30 seconds" calls.</p>
+  <p style="margin:10px 0 0"><b>FAILURES</b> <span class="kbonly" style="font-size:13px;color:#b9b5a6">(click, or press <kbd>F</kbd> to cycle)</span></p><div id="failset"></div>
+  <p style="margin:8px 0 0"><b>GRAPHICS</b> <span id="gfxset"></span> <b style="margin-left:10px">CONTROLS</b> <span id="ctlset"></span></p><p id="gfxnote" style="font-size:12.5px;color:#b9b5a6;margin:2px 0 6px"></p>
+  <p class="touchonly" style="font-size:14.5px"><b>Touch:</b> left slider = throttle (10&ndash;60%; slide past the dashed detent into FULL), <b>CUT</b> stops the engine &middot; right stick = pitch / roll, let go to hold attitude &middot; &#10226; &#10227; yaw &middot; top-right: alarm, switch panel, camera, voice, mute, pause, restart &middot; drag the view to orbit, pinch to zoom &middot; abort guards and switches: tap once to lift a guard, again to press.</p>
+  <p class="touchonly" style="font-size:13px;color:#b9b5a6">Sound needs one tap to start (iOS rule). Recent iOS plays it even with the silent switch on; if you hear nothing, check the switch and volume. For a full-screen app: Share (Safari, or Chrome&rsquo;s share icon) &rarr; <b>Add to Home Screen</b>.</p>
+  <table class="kbonly">
+    <tr><td><kbd>W</kbd> / <kbd>S</kbd></td><td>Throttle up / down (10&ndash;60%; hold at 60% for full thrust)</td></tr>
+    <tr><td><kbd>Z</kbd> / <kbd>X</kbd></td><td>Full thrust / cut engine</td></tr>
+    <tr><td><kbd>&uarr;</kbd><kbd>&darr;</kbd> (or <kbd>I</kbd><kbd>K</kbd>)</td><td>Pitch forward / back (rate command, attitude hold)</td></tr>
+    <tr><td><kbd>&larr;</kbd><kbd>&rarr;</kbd> (or <kbd>A</kbd><kbd>D</kbd>)</td><td>Roll left / right &nbsp; <kbd>Q</kbd>/<kbd>E</kbd> yaw</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Acknowledge MASTER ALARM</td></tr>
+    <tr><td><kbd>B</kbd> / <kbd>N</kbd> (hold) &middot; or click</td><td><b>ABORT</b> (P70, climb out on the descent engine) / <b>ABORT STAGE</b> (P71, jettison the descent stage, fire the ascent engine). Guarded: hold the key ~0.7&nbsp;s, or click once to lift the guard and again to press</td></tr>
+    <tr><td><kbd>F</kbd> &middot; <kbd>G</kbd> <kbd>Y</kbd> <kbd>T</kbd> <kbd>1</kbd>&ndash;<kbd>4</kbd> <kbd>U</kbd></td><td>Fold-out switch panel (or click its tab / switches): LDG RDR power &middot; MODE SEL (tapes from radar or computer) &middot; MAN THROT CDR/LMP &middot; RCS QUAD 1&ndash;4 ISOL &middot; PRPLNT QTY MON DES 1/2</td></tr>
+    <tr><td><kbd>C</kbd> &middot; mouse drag &middot; wheel</td><td>Camera (chase / LM window / TV) &middot; orbit &middot; zoom</td></tr>
+    <tr><td><kbd>P</kbd> <kbd>R</kbd> <kbd>M</kbd> <kbd>V</kbd> <kbd>H</kbd></td><td>Pause &middot; restart &middot; mute &middot; radio voices (real audio / + synth / off) &middot; hide help</td></tr>
+  </table>
+  <p style="font-size:13px;color:#b9b5a6">Safe touchdown: under 3&nbsp;m/s (10&nbsp;ft/s) down, under 1.2&nbsp;m/s (4&nbsp;ft/s) sideways, within 10&deg; of upright, on flat ground clear of boulders. Sound on: the radio calls are the genuine NASA air-to-ground recordings from Apollo 11's landing.</p>
+  <div class="go"><span class="kbonly">PRESS SPACE OR CLICK</span><span class="touchonly">TAP</span> TO BEGIN</div>
+</div></div>
+<div id="pause" class="screen hidden"><div class="card" style="text-align:center;max-width:420px"><h1 style="font-size:40px">PAUSED</h1><p>Press <kbd>P</kbd> to resume</p></div></div>
+<div id="debrief" class="screen hidden"><div class="card" id="debriefCard"></div></div>
+<div id="err" class="hidden"></div>
+<script>
+window.addEventListener('error',e=>{const el=document.getElementById('err');el.classList.remove('hidden');el.textContent='Error: '+e.message+' (this game needs an internet connection to load three.js)';});
+</script>
